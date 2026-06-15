@@ -1,0 +1,18 @@
+shuangmian@fedora:~$ curl 'https://zfjw.hnslsdxy.com/jwglxt/xsxk/zzxkyzbjk_xkBcZyZzxkYzb.html?gnmkdm=N253512' \
+  -H 'Accept: application/json, text/javascript, */*; q=0.01' \
+  -H 'Accept-Language: en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7' \
+  -H 'Connection: keep-alive' \
+  -H 'Content-Type: application/x-www-form-urlencoded;charset=UTF-8' \
+  -b 'JSESSIONID=D2B7F4C8E54B0DF9470FEEB6EC21E91D; __jsluid_s=62029d741e05da233b213238200b8282; insert_cookie=76657641' \
+  -H 'Origin: https://zfjw.hnslsdxy.com' \
+  -H 'Referer: https://zfjw.hnslsdxy.com/jwglxt/xsxk/zzxkyzb_cxZzxkYzbIndex.html?gnmkdm=N253512&layout=default' \
+  -H 'Sec-Fetch-Dest: empty' \
+  -H 'Sec-Fetch-Mode: cors' \
+  -H 'Sec-Fetch-Site: same-origin' \
+  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36' \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  -H 'sec-ch-ua: "Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'sec-ch-ua-platform: "Linux"' \
+  --data-raw 'jxb_ids=0094c6e64c6e690df76f88c021b81be60c061e5de5eec9c80798a198a55f1eaa233f239f9caa125a18349254f6c95c9612b3da6ad1fbded08239f2e76b88fb5fd765156fa24961c73749b1ea0898d7538f342a720f8470294c2f40b53156bc8a8a2ee2022bb334f3961d650e806775d39f86dd1fc35c00f02c2f3ec8ee556be6&kch_id=537968DE29D5828AE065000000000001&kcmc=(2820256B0018)AIGC%E4%B8%8E%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%AE%9E%E8%B7%B5+-+0.0+%E5%AD%A6%E5%88%86&rwlx=2&rlkz=0&cdrlkz=0&rlzlkz=1&sxbj=1&xxkbj=0&qz=0&cxbj=0&xkkz_id=540755BBD0F5022FE065000000000001&njdm_id=2024&zyh_id=028E8F4FFA5CA042E065000000000001&kklxdm=10&xklc=2&xkxnm=2026&xkxqm=3&jcxx_id='
+shuangmian@fedora:~$ 
