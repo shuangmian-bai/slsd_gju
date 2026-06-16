@@ -14,10 +14,13 @@
 
 ```bash
 # 安装依赖
-pip install requests beautifulsoup4 pycryptodome ddddocr
-```
+pip install requests beautifulsoup4 pycryptodome ddddocr playwright
+playwright install chromium
 
-项目没有 CLI 入口脚本，通过 Python 模块方式使用（参见 `sso_demo.py` 和 `pingjiao_demo.py`）。
+# 交互式选课
+python3 xuanke_demo.py
+python3 xuanke_demo.py --proxy http://127.0.0.1:7890
+```
 
 ## 模块架构
 
@@ -26,9 +29,16 @@ pip install requests beautifulsoup4 pycryptodome ddddocr
 from sso import SSO
 sso = SSO(proxy="http://127.0.0.1:7890")  # proxy 可选
 sso.set_account("学号", "密码")
+
+# 获取 SSO Cookie
 result = sso.get_cookie()  # {"success", "cookies", "message"}
+
+# 获取指定域名的 Cookie（通过无头浏览器自动完成 CAS 跳转）
+result = sso.get_cookie(domain="zfjw.hnslsdxy.com")   # 教务系统
+result = sso.get_cookie(domain="assess.hnslsdxy.com")  # 评教系统
 ```
 - `cookies` 包含：`SESSION`、`SOURCEID_TGC`、`__jsluid_s`、`rg_objectid`
+- `get_cookie(domain=...)` 通过无头浏览器访问门户 → 点击子系统入口 → 自动完成 CAS 跳转
 
 **pingjiao/** — 评教模块包（`pingjiao.PingJiao` 类）。
 ```python
@@ -42,15 +52,26 @@ pj.score("课程名称", "老师姓名")  # 给某个老师评教（模糊匹配
 - `set_sso_cookie()` 会自动完成 CAS 跳转获取 `sessionid` 和 `csrftoken`
 - `score()` 的 `course_name` 和 `teacher_name` 参数支持模糊匹配（子字符串包含）
 
-**xuanke/** — 选课模块包（`xuanke.XuanKe` 类）。
+**xuanke_browser.py** — 选课模块（浏览器版，`XuanKeBrowser` 类）。
 ```python
-from xuanke import XuanKe
-xk = XuanKe(proxy="http://127.0.0.1:7890")
-xk.set_cookie("JSESSIONID=xxx; __jsluid_s=xxx; insert_cookie=xxx")
+from sso import SSO
+from xuanke_browser import XuanKeBrowser
+
+# SSO 登录并获取教务系统会话
+sso = SSO()
+sso.set_account("学号", "密码")
+# 通过无头浏览器获取教务系统的 page 对象
+# ...（参见 xuanke_demo.py）
+
+xk = XuanKeBrowser(page)  # 传入 Playwright Page 对象
 xk.show_courses()          # 查询课程并标记已选状态
 xk.grab("电影赏析")         # 抢课（模糊匹配）
 xk.drop("电影赏析")         # 退课
 ```
+- 通过无头浏览器在教务系统页面内执行 JavaScript fetch 请求
+- 避免了跨域 Cookie 和 CAS 跳转的问题
+
+**xuanke/** — 选课模块包（旧版，`xuanke.XuanKe` 类，使用 requests）。
 
 **main.py** — 旧版本（从 curl dump 文件读取 cookies），已被模块化架构取代。
 
@@ -73,9 +94,28 @@ xk.drop("电影赏析")         # 退课
 - 选课系统域名：`zfjw.hnslsdxy.com`，使用 `JSESSIONID` + `__jsluid_s` + `insert_cookie` 鉴权
 - 验证码：多次登录失败后触发，使用 `ddddocr` OCR 自动识别，最多重试 3 次
 
+### CAS 跳转流程（教务系统）
+
+教务系统 CAS 入口：`https://zfjw.hnslsdxy.com/sso/jasiglogin`
+
+```
+1. GET /sso/jasiglogin → 302 到 http://sso.hnslsdxy.com/login?service=...
+2. GET http://sso.hnslsdxy.com/login?service=... → 307 到 https://sso.hnslsdxy.com/login?service=...
+3. CAS 检查 SSO cookies → 302 回 http://zfjw.hnslsdxy.com/sso/jasiglogin?ticket=...
+4. 教务系统验证 ticket → 设置 JSESSIONID
+```
+
+**注意**：CAS 服务器使用 HTTP 而非 HTTPS，但会 307 到 HTTPS。
+
+### 门户入口
+
+从门户 API `/api/services/card` 获取子系统入口：
+- 教务系统：`https://zfjw.hnslsdxy.com/sso/jasiglogin`
+- 评教系统：`https://assess.hnslsdxy.com/auth/login/`
+
 ## 编码约定
 
-- 每个功能模块封装为一个类（`SSO`、`PingJiao`、`XuanKe`），通过构造函数接受 `proxy` 参数
+- 每个功能模块封装为一个类（`SSO`、`PingJiao`、`XuanKe`、`XuanKeBrowser`），通过构造函数接受 `proxy` 参数
 - Cookie 设置方式：`set_cookie(字符串)` / `set_cookies(字典)` / `set_sso_cookie(SSO cookies 字典)`
 - 课程匹配使用子字符串包含（`name in kcmc`），支持模糊匹配
 - 中文对齐使用 `cn_ljust()` 辅助函数（中文字符占 2 个宽度）
