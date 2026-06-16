@@ -33,10 +33,15 @@ python3 login.py <学号> <密码> --proxy http://127.0.0.1:7890
 
 **login.py** — SSO 认证模块（旧版 CLI）。已被 `sso/` 模块取代。
 
-**pingjiao.py** — 评教执行器。从 `sso/` 导入 `SSO`，然后：
-1. 调用 `login()` 获取 SSO cookies
-2. `create_session()` 执行 CAS 重定向链：`assess.hnslsdxy.com` → `sso.hnslsdxy.com`（带 ticket）→ 返回 assess，获得 `sessionid` + `csrftoken` cookies
-3. `get_assessments()` / `save_assessment()` 调用 `assess.hnslsdxy.com` 的评教 API
+**pingjiao/** — 评教模块包。通过 `set_cookie()` 或 `set_sso_cookie()` 设置 Cookie，支持：
+- `show_assessments()` — 查询待评教课程列表
+- `score(course_name, teacher_name)` — 给某个老师评教（默认满分）
+- `score_all()` — 给所有课程满分评教
+- `get_assessments()` — 查询待评教课程（底层方法）
+- `get_full_score()` — 获取满分数组
+- `get_standard()` — 获取评教标准
+
+**pingjiao.py** — 评教执行器（旧版 CLI）。已被 `pingjiao/` 模块取代。
 
 **xuanke/** — 选课模块包。通过 `set_cookie()` 或 `set_cookies()` 传入 Cookie，支持：
 - `show_courses()` — 查询课程并标记已选状态
