@@ -222,10 +222,16 @@ class SSO:
             cookies = {c.name: c.value for c in session.cookies}
             final_url = resp.url
 
-            if "/login" not in final_url or resp.status_code == 302:
+            # 检查是否登录成功
+            # 成功条件：不在登录页面，或者有特定的成功标识
+            if "/login" not in final_url:
                 print(f"  ✓ 登录成功！重定向到: {final_url}")
                 self._cookies = cookies
                 return {"success": True, "cookies": cookies, "message": "OK", "redirect": final_url}
+
+            # 检查是否有错误参数在 URL 中
+            if "error" in final_url or "code" in final_url:
+                print(f"  ✗ 登录失败，URL: {final_url}")
 
             # 解析错误
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -233,7 +239,9 @@ class SSO:
             error_code = error_el.get_text(strip=True) if error_el else ""
 
             error_msg = ""
-            for sel in [".error-msg", ".error-toast", ".ant-message-error", ".wechat-note"]:
+            # 尝试多种错误选择器
+            for sel in [".error-msg", ".error-toast", ".ant-message-error", ".wechat-note",
+                        ".login-error", ".error-message", "#error-msg", "#error-message"]:
                 el = soup.select_one(sel)
                 if el:
                     txt = el.get_text(strip=True)
@@ -241,13 +249,27 @@ class SSO:
                         error_msg = txt
                         break
 
+            # 如果没有找到错误消息，尝试从页面文本中提取
             body_text = soup.get_text()
             if not error_msg:
                 for pattern in ["用户名或密码错误", "验证码有误", "验证码错误", "网络异常",
-                                "账号已锁定", "密码错误", "账号不存在", "账号被禁用"]:
+                                "账号已锁定", "密码错误", "账号不存在", "账号被禁用",
+                                "登录失败", "认证失败", "用户名或密码不正确"]:
                     if pattern in body_text:
                         error_msg = pattern
                         break
+
+            # 如果还是没有找到错误消息，尝试从 script 标签中提取
+            if not error_msg:
+                scripts = soup.find_all("script")
+                for script in scripts:
+                    if script.string and ("error" in script.string.lower() or "msg" in script.string.lower()):
+                        # 尝试提取错误消息
+                        import re
+                        match = re.search(r'["\']([^"\']*(?:错误|失败|不正确|锁定|禁用)[^"\']*)["\']', script.string)
+                        if match:
+                            error_msg = match.group(1)
+                            break
 
             print(f"  ✗ 登录失败: [{error_code}] {error_msg}")
 
@@ -258,7 +280,7 @@ class SSO:
             return {
                 "success": False,
                 "cookies": cookies,
-                "message": error_msg or "未知错误",
+                "message": error_msg or "登录失败，请检查账号密码",
                 "error_code": error_code,
             }
 
