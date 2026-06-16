@@ -25,13 +25,15 @@ python3 login.py <学号> <密码> --proxy http://127.0.0.1:7890
 
 ## 模块架构
 
-**login.py** — SSO 认证模块。从 `sso.hnslsdxy.com` 的 Angular 前端逆向工程。关键细节：
-- 密码使用 AES-128-ECB 加密（密钥 = 页面 HTML 中 `login-croypto` 的 base64 解码，16 字节）
-- 验证码通过 `ddddocr` OCR 识别，自动重试（最多 3 次）
+**sso/** — SSO 登录模块包。通过 `set_account()` 设置账号密码，`get_cookie()` 获取 Cookie：
+- `set_account(username, password)` — 设置账号密码
+- `get_cookie(max_retries=3)` — 获取 SSO Cookie
 - 返回 `{"success", "cookies", "message"}` 字典
 - `cookies` 包含：`SESSION`、`SOURCEID_TGC`、`__jsluid_s`、`rg_objectid`
 
-**pingjiao.py** — 评教执行器。从 `login.py` 导入 `login()`，然后：
+**login.py** — SSO 认证模块（旧版 CLI）。已被 `sso/` 模块取代。
+
+**pingjiao.py** — 评教执行器。从 `sso/` 导入 `SSO`，然后：
 1. 调用 `login()` 获取 SSO cookies
 2. `create_session()` 执行 CAS 重定向链：`assess.hnslsdxy.com` → `sso.hnslsdxy.com`（带 ticket）→ 返回 assess，获得 `sessionid` + `csrftoken` cookies
 3. `get_assessments()` / `save_assessment()` 调用 `assess.hnslsdxy.com` 的评教 API
