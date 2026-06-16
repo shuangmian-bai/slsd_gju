@@ -87,7 +87,7 @@ class XuanKe:
             if "=" in item:
                 k, v = item.split("=", 1)
                 cookie_dict[k.strip()] = v.strip()
-        self._session.cookies.update(cookie_dict)
+        self.set_cookies(cookie_dict)
 
     def set_cookies(self, cookie_dict: dict):
         """

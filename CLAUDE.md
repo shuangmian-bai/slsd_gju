@@ -15,53 +15,71 @@
 ```bash
 # 安装依赖
 pip install requests beautifulsoup4 pycryptodome ddddocr
-
-# 运行评教（使用 Clash 代理）
-python3 pingjiao.py <学号> <密码> --proxy http://127.0.0.1:7890
-
-# 仅 SSO 登录（返回 JSON 格式的 cookies）
-python3 login.py <学号> <密码> --proxy http://127.0.0.1:7890
 ```
+
+项目没有 CLI 入口脚本，通过 Python 模块方式使用（参见 `sso_demo.py` 和 `pingjiao_demo.py`）。
 
 ## 模块架构
 
-**sso/** — SSO 登录模块包。通过 `set_account()` 设置账号密码，`get_cookie()` 获取 Cookie：
-- `set_account(username, password)` — 设置账号密码
-- `get_cookie(max_retries=3)` — 获取 SSO Cookie
-- 返回 `{"success", "cookies", "message"}` 字典
+**sso/** — SSO 登录模块包（`sso.SSO` 类）。
+```python
+from sso import SSO
+sso = SSO(proxy="http://127.0.0.1:7890")  # proxy 可选
+sso.set_account("学号", "密码")
+result = sso.get_cookie()  # {"success", "cookies", "message"}
+```
 - `cookies` 包含：`SESSION`、`SOURCEID_TGC`、`__jsluid_s`、`rg_objectid`
 
-**login.py** — SSO 认证模块（旧版 CLI）。已被 `sso/` 模块取代。
+**pingjiao/** — 评教模块包（`pingjiao.PingJiao` 类）。
+```python
+from pingjiao import PingJiao
+pj = PingJiao(proxy="http://127.0.0.1:7890")
+pj.set_sso_cookie(sso_cookies)  # 通过 SSO Cookie 建立评教会话（CAS 自动跳转）
+pj.show_assessments()            # 查询待评教课程列表
+pj.score_all()                   # 给所有课程满分评教
+pj.score("课程名称", "老师姓名")  # 给某个老师评教（模糊匹配）
+```
+- `set_sso_cookie()` 会自动完成 CAS 跳转获取 `sessionid` 和 `csrftoken`
+- `score()` 的 `course_name` 和 `teacher_name` 参数支持模糊匹配（子字符串包含）
 
-**pingjiao/** — 评教模块包。通过 `set_cookie()` 或 `set_sso_cookie()` 设置 Cookie，支持：
-- `show_assessments()` — 查询待评教课程列表
-- `score(course_name, teacher_name)` — 给某个老师评教（默认满分）
-- `score_all()` — 给所有课程满分评教
-- `get_assessments()` — 查询待评教课程（底层方法）
-- `get_full_score()` — 获取满分数组
-- `get_standard()` — 获取评教标准
+**xuanke/** — 选课模块包（`xuanke.XuanKe` 类）。
+```python
+from xuanke import XuanKe
+xk = XuanKe(proxy="http://127.0.0.1:7890")
+xk.set_cookie("JSESSIONID=xxx; __jsluid_s=xxx; insert_cookie=xxx")
+xk.show_courses()          # 查询课程并标记已选状态
+xk.grab("电影赏析")         # 抢课（模糊匹配）
+xk.drop("电影赏析")         # 退课
+```
 
-**pingjiao.py** — 评教执行器（旧版 CLI）。已被 `pingjiao/` 模块取代。
+**main.py** — 旧版本（从 curl dump 文件读取 cookies），已被模块化架构取代。
 
-**xuanke/** — 选课模块包。通过 `set_cookie()` 或 `set_cookies()` 传入 Cookie，支持：
-- `show_courses()` — 查询课程并标记已选状态
-- `grab(name)` — 抢课（只需课程名称，支持模糊匹配）
-- `drop(name)` — 退课（只需课程名称）
-- `get_courses()` — 查询可选课程（底层方法）
-- `get_selected_courses()` — 获取已选课程列表
-- `select_course()` — 抢课底层方法（需2次请求）
-- `drop_course()` — 退课底层方法（需2次请求）
+## 返回值约定
 
-**main.py** — 旧版本（从 curl dump 文件读取 cookies）。已被 `pingjiao.py` 取代。
+所有模块方法统一返回字典，包含 `success`（bool）和 `message`（str）字段：
+```python
+{"success": True, "message": "...", ...}   # 成功
+{"success": False, "message": "错误信息"}   # 失败
+```
 
 ## 关键技术细节
 
 - SSO 登录表单以 `application/x-www-form-urlencoded` 格式 POST 到 `/login`（不是 JSON）
 - `login-croypto` 值是 base64 字符串，解码后为 16 字节 — 直接用作 AES 密钥（不是 UTF-8 字节）
+- AES 加密：`AES-128-ECB + PKCS7`，密钥为 base64 解码后的 croypto 字段
 - CSRF 头（`Csrf-Key` / `Csrf-Value`）是从前端 JS 提取的静态值
-- 评教服务需要 CAS ticket 验证 — 仅 SSO cookies 不够
+- 评教服务需要 CAS ticket 验证 — 仅 SSO cookies 不够，必须通过 `set_sso_cookie()` 完成跳转
 - 评教 API 需要 `csrftoken` cookie 的 `X-CSRFToken` 头
 - 选课系统域名：`zfjw.hnslsdxy.com`，使用 `JSESSIONID` + `__jsluid_s` + `insert_cookie` 鉴权
+- 验证码：多次登录失败后触发，使用 `ddddocr` OCR 自动识别，最多重试 3 次
+
+## 编码约定
+
+- 每个功能模块封装为一个类（`SSO`、`PingJiao`、`XuanKe`），通过构造函数接受 `proxy` 参数
+- Cookie 设置方式：`set_cookie(字符串)` / `set_cookies(字典)` / `set_sso_cookie(SSO cookies 字典)`
+- 课程匹配使用子字符串包含（`name in kcmc`），支持模糊匹配
+- 中文对齐使用 `cn_ljust()` 辅助函数（中文字符占 2 个宽度）
+- `get_courses()` 等底层方法返回原始 API 响应，`show_courses()` / `grab()` / `drop()` 等高层方法返回格式化的 `{"success", "message"}` 字典
 
 ## 选课系统 API 端点
 

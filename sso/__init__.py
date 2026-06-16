@@ -2,16 +2,21 @@
 """
 SSO 登录模块 — 湖南水利水电职业技术学院
 
-功能：SSO 登录获取 Cookie
-通过 set_account() 设置账号密码，get_cookie() 获取 Cookie
+功能：SSO 登录获取 Cookie，支持获取各子站点的 Cookie
+通过无头浏览器自动完成 CAS 跳转
 
 Usage:
     from sso import SSO
 
     sso = SSO()
     sso.set_account("学号", "密码")
+
+    # 获取 SSO Cookie
     result = sso.get_cookie()
-    # result = {"success": True, "cookies": {...}, "message": "OK"}
+
+    # 获取指定域名的 Cookie（自动完成 CAS 跳转）
+    result = sso.get_cookie(domain="zfjw.hnslsdxy.com")
+    result = sso.get_cookie(domain="assess.hnslsdxy.com")
 """
 
 import time
@@ -21,6 +26,7 @@ from bs4 import BeautifulSoup
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 import ddddocr
+from playwright.sync_api import sync_playwright
 
 
 class SSO:
@@ -34,6 +40,13 @@ class SSO:
     # 静态 CSRF（从前端 JS 提取）
     CSRF_KEY = "FzgxPikIetYDlXZM4lRG9taclVDa99lB"
     CSRF_VALUE = "7964f321f00366a3a287a133dd307ed0"
+
+    # 子站点入口 URL
+    SITE_URLS = {
+        "portal.hnslsdxy.com": "https://portal.hnslsdxy.com/home",
+        "assess.hnslsdxy.com": "https://assess.hnslsdxy.com/auth/login/",
+        "zfjw.hnslsdxy.com": "https://zfjw.hnslsdxy.com/jwglxt/xtgl/index_initMenu.html?jsdm=xs",
+    }
 
     def __init__(self, proxy: str = None):
         """
@@ -58,11 +71,13 @@ class SSO:
         self._username = username
         self._password = password
 
-    def get_cookie(self, max_retries: int = 3) -> dict:
+    def get_cookie(self, domain: str = None, max_retries: int = 3) -> dict:
         """
-        获取 SSO Cookie
+        获取 Cookie
 
         Args:
+            domain: 目标域名，如 'zfjw.hnslsdxy.com'、'assess.hnslsdxy.com'
+                    为 None 时返回 SSO 原始 cookies
             max_retries: 验证码识别失败时的最大重试次数
 
         Returns:
@@ -71,7 +86,124 @@ class SSO:
         if not self._username or not self._password:
             return {"success": False, "cookies": {}, "message": "请先调用 set_account() 设置账号密码"}
 
-        return self._login(max_retries)
+        # 如果没有 SSO cookies，先登录
+        if not self._cookies:
+            result = self._login(max_retries)
+            if not result["success"]:
+                return result
+            self._cookies = result["cookies"]
+
+        # 如果没有指定域名，返回 SSO cookies
+        if domain is None:
+            return {"success": True, "cookies": self._cookies, "message": "OK"}
+
+        # 获取指定域名的 cookies
+        return self._get_domain_cookie(domain)
+
+    def _get_domain_cookie(self, domain: str) -> dict:
+        """
+        通过无头浏览器获取指定域名的 cookies
+
+        流程：
+        1. 访问门户首页
+        2. 点击教务系统入口
+        3. 等待跳转完成
+        4. 获取目标域名的 cookies
+
+        Args:
+            domain: 目标域名
+
+        Returns:
+            {"success": bool, "cookies": dict, "message": str}
+        """
+        try:
+            print(f"[Browser] 启动无头浏览器...")
+            with sync_playwright() as p:
+                # 启动浏览器
+                browser_args = {}
+                if self._proxy:
+                    browser_args["proxy"] = {"server": self._proxy}
+
+                browser = p.chromium.launch(headless=True, **browser_args)
+                context = browser.new_context()
+
+                # 设置 SSO cookies
+                cookies_to_set = []
+                for name, value in self._cookies.items():
+                    cookies_to_set.append({
+                        "name": name,
+                        "value": value,
+                        "domain": "sso.hnslsdxy.com",
+                        "path": "/",
+                    })
+                    cookies_to_set.append({
+                        "name": name,
+                        "value": value,
+                        "domain": ".hnslsdxy.com",
+                        "path": "/",
+                    })
+
+                context.add_cookies(cookies_to_set)
+
+                # 步骤1: 访问门户首页
+                page = context.new_page()
+                print(f"[Browser] 步骤1: 访问门户首页...")
+                page.goto("https://portal.hnslsdxy.com/home", wait_until="networkidle", timeout=30000)
+                page.wait_for_timeout(3000)
+                print(f"[Browser] 当前 URL: {page.url}")
+
+                # 步骤2: 点击教务系统入口
+                print(f"[Browser] 步骤2: 点击教务系统入口...")
+                try:
+                    # XPath: //*[@id="root"]/div/div/div[2]/div[2]/div/div[1]/div[2]/div[2]/div/div[1]/div[5]/div/span[1]
+                    target = page.locator('//*[@id="root"]/div/div/div[2]/div[2]/div/div[1]/div[2]/div[2]/div/div[1]/div[5]/div/span[1]')
+                    target.click(timeout=10000)
+                    print(f"[Browser] 已点击目标元素")
+                except Exception as e:
+                    print(f"[Browser] 点击失败: {e}")
+                    # 尝试直接访问教务系统
+                    print(f"[Browser] 尝试直接访问教务系统...")
+                    page.goto("https://zfjw.hnslsdxy.com/sso/jasiglogin", wait_until="networkidle", timeout=30000)
+
+                # 步骤3: 等待跳转完成
+                print(f"[Browser] 步骤3: 等待跳转完成...")
+                page.wait_for_timeout(5000)
+
+                # 如果点击后打开了新页面，切换到新页面
+                if len(context.pages) > 1:
+                    page = context.pages[-1]
+                    page.wait_for_timeout(3000)
+
+                current_url = page.url
+                print(f"[Browser] 当前 URL: {current_url}")
+
+                # 步骤4: 获取目标域名的 cookies
+                all_cookies = context.cookies()
+                domain_cookies = {}
+                for cookie in all_cookies:
+                    if cookie["domain"] == domain or cookie["domain"].endswith(f".{domain}"):
+                        domain_cookies[cookie["name"]] = cookie["value"]
+
+                # 添加通用 cookies
+                for name in ["__jsluid_s", "rg_objectid"]:
+                    if name in self._cookies and name not in domain_cookies:
+                        domain_cookies[name] = self._cookies[name]
+
+                print(f"[Browser] 获取到 cookies: {list(domain_cookies.keys())}")
+
+                browser.close()
+
+                if not domain_cookies:
+                    return {"success": False, "cookies": {}, "message": f"未获取到 {domain} 的 cookies"}
+
+                return {
+                    "success": True,
+                    "cookies": domain_cookies,
+                    "message": f"成功获取 {domain} 的 cookies",
+                }
+
+        except Exception as e:
+            return {"success": False, "cookies": {}, "message": f"获取 {domain} cookies 失败: {str(e)}"}
 
     def _aes_encrypt(self, key_str: str, plaintext: str) -> str:
         """AES-128-ECB + Pkcs7. Key 是 base64 解码的 croypto (16 字节)."""
