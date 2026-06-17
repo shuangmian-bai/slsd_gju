@@ -10,8 +10,11 @@ Usage:
     sso = SSO()
     sso.set_account("学号", "密码")
 
-    # 获取 SSO Cookie
+    # 获取 SSO Cookie（优先 Python 直接登录，失败则自动回退到浏览器登录）
     result = sso.get_cookie()
+
+    # 强制使用浏览器登录
+    result = sso.get_cookie(browser=True)
 
     # 获取指定域名的 Cookie（自动跟踪 CAS 重定向链）
     result = sso.get_cookie(domain="zfjw.hnslsdxy.com")   # 教务系统
@@ -19,6 +22,8 @@ Usage:
 """
 
 import re
+import json
+import time
 import requests
 from bs4 import BeautifulSoup
 
@@ -51,7 +56,7 @@ class SSO:
         self._username = username
         self._password = password
 
-    def get_cookie(self, domain: str = None, max_retries: int = 3) -> dict:
+    def get_cookie(self, domain: str = None, max_retries: int = 2) -> dict:
         """
         获取 Cookie
 
@@ -89,13 +94,8 @@ class SSO:
             "execution": _text("login-page-flowkey"),
         }
 
-    def _login(self, max_retries: int = 3) -> dict:
-        """
-        执行 SSO 登录
-
-        Returns:
-            {"success": bool, "cookies": dict, "message": str}
-        """
+    def _create_session(self) -> requests.Session:
+        """创建匹配浏览器特征的 requests Session"""
         session = requests.Session()
         session.headers.update({
             "User-Agent": (
@@ -103,68 +103,117 @@ class SSO:
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/149.0.0.0 Safari/537.36"
             ),
-            "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-User": "?1",
+            "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Linux"',
             "Referer": self.LOGIN_URL,
             "Origin": self.BASE,
         })
         if self._proxy:
             session.proxies = {"http": self._proxy, "https": self._proxy}
+        return session
 
-        for attempt in range(1, max_retries + 1):
-            if attempt > 1:
-                print(f"\n--- 重试 #{attempt - 1} ---")
+    def _do_login(self, session: requests.Session, captcha_payload: str = "") -> dict:
+        """
+        执行一次登录请求
 
+        Args:
+            session: requests.Session
+            captcha_payload: 验证码加密后的值，空字符串表示不带验证码
+
+        Returns:
+            {"success": bool, "cookies": dict, "message": str}
+        """
+        # 1. 获取登录页
+        resp = session.get(self.LOGIN_URL, timeout=15)
+        resp.raise_for_status()
+        fields = self._extract_page_fields(resp.text)
+        croypto = fields["croypto"]
+        execution = fields["execution"]
+
+        if not croypto:
+            return {"success": False, "cookies": {}, "message": "无法提取 login-croypto"}
+
+        # 2. 加密密码
+        encrypted_pw = aes_encrypt(croypto, self._password)
+
+        # 3. 构建表单（匹配浏览器字段顺序）
+        form = [
+            ("username", self._username),
+            ("type", "UsernamePassword"),
+            ("_eventId", "submit"),
+            ("geolocation", ""),
+            ("execution", execution),
+            ("captcha_code", captcha_payload),
+            ("croypto", croypto),
+            ("password", encrypted_pw),
+            ("captcha_payload", captcha_payload),
+        ]
+
+        # 4. 提交
+        resp = session.post(
+            self.LOGIN_URL,
+            data=form,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+            allow_redirects=True,
+        )
+
+        cookies = {c.name: c.value for c in session.cookies}
+        final_url = resp.url
+
+        if "/login" not in final_url:
+            return {"success": True, "cookies": cookies, "message": "OK", "redirect": final_url}
+
+        error_msg = self._parse_error(resp.text)
+        return {"success": False, "cookies": cookies, "message": error_msg or "登录失败"}
+
+    def _login_with_captcha(self, session: requests.Session) -> dict:
+        """
+        带验证码登录：获取登录页 → 获取验证码 → OCR → 加密 → 提交
+        整个流程使用同一个 session，确保 croypto/execution 一致
+        """
+        try:
             # 1. 获取登录页
-            print("[1/4] 获取登录页...")
             resp = session.get(self.LOGIN_URL, timeout=15)
             resp.raise_for_status()
             fields = self._extract_page_fields(resp.text)
             croypto = fields["croypto"]
             execution = fields["execution"]
 
-            if not croypto:
-                return {"success": False, "cookies": {}, "message": "无法提取 login-croypto"}
-            print(f"  croypto: {croypto}")
+            # 2. 获取并识别验证码
+            img = fetch_captcha(session)
+            captcha_code = ocr_captcha(img)
+            if not captcha_code:
+                return {"success": False, "cookies": {}, "message": "验证码 OCR 返回空"}
 
-            # 2. 检查验证码
-            print("[2/4] 检查验证码...")
-            captcha_info = check_captcha(session, self._username)
-            need_captcha = captcha_info.get("captchaInvisible", False)
-            captcha_count = captcha_info.get("count", 0)
-            print(f"  count={captcha_count}, invisible={need_captcha}")
+            captcha_payload = aes_encrypt(croypto, captcha_code)
+            print(f"  OCR: {captcha_code}")
 
-            # 3. 验证码 OCR
-            captcha_code = ""
-            captcha_payload = ""
-            if need_captcha or captcha_count > 0:
-                print("[3/4] 需要验证码 → 获取并识别...")
-                img = fetch_captcha(session)
-                captcha_code = ocr_captcha(img)
-                print(f"  OCR 结果: {captcha_code}")
-                if not captcha_code:
-                    return {"success": False, "cookies": {}, "message": "验证码 OCR 返回空"}
-                captcha_payload = aes_encrypt(croypto, captcha_code)
-            else:
-                print("[3/4] 无需验证码")
-
-            # 4. 加密密码并提交
-            print("[4/4] 加密密码并提交表单...")
+            # 3. 加密密码（使用同一个 croypto）
             encrypted_pw = aes_encrypt(croypto, self._password)
 
-            # 使用列表支持重复字段（captcha_code 需要发送两次）
+            # 4. 构建表单并提交
             form = [
                 ("username", self._username),
-                ("password", encrypted_pw),
                 ("type", "UsernamePassword"),
                 ("_eventId", "submit"),
                 ("geolocation", ""),
                 ("execution", execution),
+                ("captcha_code", captcha_payload),
                 ("croypto", croypto),
+                ("password", encrypted_pw),
+                ("captcha_payload", captcha_payload),
             ]
-            if captcha_code:
-                form.append(("captcha_code", captcha_code))
-                form.append(("captcha_code", captcha_code))
-                form.append(("captcha_payload", captcha_payload))
 
             resp = session.post(
                 self.LOGIN_URL,
@@ -175,28 +224,74 @@ class SSO:
             )
 
             cookies = {c.name: c.value for c in session.cookies}
-            final_url = resp.url
+            if "/login" not in resp.url:
+                return {"success": True, "cookies": cookies, "message": "OK", "redirect": resp.url}
 
-            if "/login" not in final_url:
-                print(f"  ✓ 登录成功！重定向到: {final_url}")
-                self._cookies = cookies
-                return {"success": True, "cookies": cookies, "message": "OK", "redirect": final_url}
-
-            if "error" in final_url or "code" in final_url:
-                print(f"  ✗ 登录失败，URL: {final_url}")
-
-            # 解析错误
             error_msg = self._parse_error(resp.text)
-            print(f"  ✗ 登录失败: {error_msg}")
+            return {"success": False, "cookies": cookies, "message": error_msg or "登录失败"}
+        except Exception as e:
+            return {"success": False, "cookies": {}, "message": f"验证码异常: {e}"}
 
-            if "验证码" in error_msg and attempt < max_retries:
+    # 不需要重试的错误关键词
+    _FATAL_ERRORS = ("用户名或密码错误", "账号已锁定", "账号不存在", "账号被禁用", "认证失败")
+
+    def _login(self, max_retries: int = 2) -> dict:
+        """
+        智能顺序登录：
+        - 无需验证码 → 直接空验证码登录
+        - 需要验证码 → 先带验证码，失败再空验证码
+
+        Returns:
+            {"success": bool, "cookies": dict, "message": str}
+        """
+        for attempt in range(1, max_retries + 1):
+            if attempt > 1:
+                print(f"\n--- 重试 #{attempt - 1} ---")
+
+            print(f"[尝试 {attempt}/{max_retries}]")
+
+            # 1. 创建 session，检查是否需要验证码
+            session = self._create_session()
+            try:
+                resp = session.get(self.LOGIN_URL, timeout=15)
+                resp.raise_for_status()
+            except Exception as e:
+                print(f"  获取登录页失败: {e}")
                 continue
 
-            return {
-                "success": False,
-                "cookies": cookies,
-                "message": error_msg or "登录失败，请检查账号密码",
-            }
+            captcha_info = check_captcha(session, self._username)
+            need_captcha = captcha_info.get("count", 0) > 0
+            print(f"  验证码: {'需要' if need_captcha else '不需要'}")
+
+            if not need_captcha:
+                # 无需验证码 → 直接用当前 session 提交
+                print("  → 直接空验证码登录...")
+                r = self._do_login(session, captcha_payload="")
+            else:
+                # 需要验证码 → 先用当前 session 带验证码
+                print("  → 先尝试带验证码...")
+                r = self._login_with_captcha(session)
+                if not r["success"]:
+                    # 带验证码失败 → 新 session 空验证码
+                    print("  → 带验证码失败，尝试空验证码...")
+                    session2 = self._create_session()
+                    r = self._do_login(session2, captcha_payload="")
+
+            if r["success"]:
+                print(f"  ✓ 登录成功！")
+                self._cookies = r["cookies"]
+                return r
+
+            print(f"  ✗ {r['message']}")
+
+            # 致命错误不重试
+            for keyword in self._FATAL_ERRORS:
+                if keyword in r["message"]:
+                    return r
+
+            # 如果两种方式都失败（带验证码+空验证码），说明密码错误，不重试
+            if need_captcha and not r["success"]:
+                return {"success": False, "cookies": {}, "message": r["message"]}
 
         return {"success": False, "cookies": {}, "message": "超过最大重试次数"}
 
