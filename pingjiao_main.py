@@ -6,36 +6,53 @@
 from sso import SSO
 from pingjiao import PingJiao
 
-# 方式1: 直接设置 Cookie
-# pj = PingJiao()
-# pj.set_cookie("SESSION=xxx; csrftoken=xxx")
 
-# 方式2: 通过 SSO 登录获取 Cookie
-sso = SSO()
-sso.set_account("your_user", "your_password")
-result = sso.get_cookie()
+def main():
+    """交互式评教"""
+    print("\n--- 评教系统 ---")
+    username = input("学号: ").strip()
+    password = input("密码: ").strip()
 
-if not result["success"]:
-    print(f"登录失败: {result['message']}")
-    exit(1)
+    if not username or not password:
+        print("学号和密码不能为空")
+        return
 
-# 初始化评教模块
-pj = PingJiao()
+    # SSO 登录
+    sso = SSO()
+    sso.set_account(username, password)
+    result = sso.get_cookie()
 
-# 通过 SSO Cookie 建立评教会话
-pj.set_sso_cookie(result["cookies"])
+    if not result["success"]:
+        print(f"登录失败: {result['message']}")
+        return
 
-# 查询待评教课程
-pj.show_assessments()
+    print("✓ SSO 登录成功")
 
-# 给所有课程满分评教
-result = pj.score_all()
-print(result)
+    # 初始化评教模块
+    pj = PingJiao()
+    pj.set_sso_cookie(result["cookies"])
 
-# 给某个老师满分评教
-# result = pj.score("课程名称", "老师姓名")
-# print(result)
+    # 查询待评教课程
+    print("\n查询待评教课程...")
+    pj.show_assessments()
 
-# 给某个老师指定分数评教
-# result = pj.score("课程名称", "老师姓名", scores=[10, 10, 10, ...])
-# print(result)
+    # 选择操作
+    print("\n操作:")
+    print("  [1] 所有课程满分评教")
+    print("  [2] 选择课程评教")
+    print("  [0] 返回")
+
+    choice = input("请选择: ").strip()
+
+    if choice == "1":
+        result = pj.score_all()
+        print(result)
+    elif choice == "2":
+        course = input("课程名称: ").strip()
+        teacher = input("老师姓名: ").strip()
+        result = pj.score(course, teacher)
+        print(result)
+
+
+if __name__ == "__main__":
+    main()

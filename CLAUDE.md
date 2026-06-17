@@ -16,14 +16,13 @@
 # 安装依赖
 pip install requests beautifulsoup4 pycryptodome ddddocr
 
-# SSO 登录示例
-python3 sso_login_demo.py
+# 主入口（交互式菜单，选择功能模块）
+python3 main.py
 
-# 评教示例
-python3 pingjiao_main.py
-
-# 交互式选课
-python3 xuanke_main.py
+# 也可以单独运行各模块
+python3 sso_login_demo.py    # SSO 登录
+python3 pingjiao_main.py     # 评教
+python3 xuanke_main.py       # 选课
 ```
 
 ## 模块架构
