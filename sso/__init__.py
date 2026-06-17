@@ -21,6 +21,8 @@ Usage:
 
 import time
 import base64
+import os
+from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from Crypto.Cipher import AES
@@ -256,11 +258,61 @@ class SSO:
                 pass
         return data
 
-    def _ocr_captcha(self, image_bytes: bytes) -> str:
-        """识别验证码"""
-        ocr = ddddocr.DdddOcr(show_ad=False)
-        result = ocr.classification(image_bytes)
-        return result.strip()
+    def _ocr_captcha(self, image_bytes: bytes, save_dir: str = "captcha") -> str:
+        """
+        识别验证码 — 多次识别取众数，提高准确率
+
+        ddddocr 单次识别可能不稳定，对同一张图多次识别并投票，
+        取出现频率最高的结果。
+        图片会保存到 save_dir 目录，文件名包含时间戳和 OCR 结果。
+
+        Args:
+            image_bytes: 验证码图片字节
+            save_dir: 图片保存目录，默认 'captcha'
+
+        Returns:
+            识别出的验证码文本
+        """
+        import re
+        from collections import Counter
+
+        # 使用两种模式：default + old，各识别 5 次，共 10 次投票
+        ocr_default = ddddocr.DdddOcr(show_ad=False)
+        ocr_old = ddddocr.DdddOcr(show_ad=False, old=True)
+
+        results = []
+        for _ in range(5):
+            for ocr in (ocr_default, ocr_old):
+                try:
+                    r = ocr.classification(image_bytes).strip()
+                    # 后处理：只保留字母和数字
+                    r = re.sub(r'[^a-zA-Z0-9]', '', r)
+                    if r:
+                        results.append(r.lower())
+                except Exception:
+                    pass
+
+        if not results:
+            return ""
+
+        # 取众数（出现最多的结果）
+        counter = Counter(results)
+        best, count = counter.most_common(1)[0]
+        print(f"  OCR 多次结果: {dict(counter)} → 选择: {best} (出现{count}次)")
+
+        # 保存验证码图片到本地，方便人工确认
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_{best}.png"
+            filepath = os.path.join(save_dir, filename)
+            with open(filepath, "wb") as f:
+                f.write(image_bytes)
+            print(f"  验证码图片已保存: {filepath}")
+        except Exception as e:
+            print(f"  保存验证码图片失败: {e}")
+
+        return best
 
     def _login(self, max_retries: int = 3) -> dict:
         """
@@ -273,11 +325,11 @@ class SSO:
         session = requests.Session()
         session.headers.update({
             "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "Mozilla/5.0 (X11; Linux x86_64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
+                "Chrome/149.0.0.0 Safari/537.36"
             ),
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
             "Referer": self.LOGIN_URL,
             "Origin": self.BASE,
         })
@@ -325,26 +377,27 @@ class SSO:
             print("[4/4] 加密密码并提交表单...")
             encrypted_pw = self._aes_encrypt(croypto, self._password)
 
-            form = {
-                "username": self._username,
-                "password": encrypted_pw,
-                "type": "UsernamePassword",
-                "_eventId": "submit",
-                "geolocation": "",
-                "execution": execution,
-                "croypto": croypto,
-            }
+            # 使用列表而非字典，支持重复字段（curl 中 captcha_code 出现两次）
+            form = [
+                ("username", self._username),
+                ("password", encrypted_pw),
+                ("type", "UsernamePassword"),
+                ("_eventId", "submit"),
+                ("geolocation", ""),
+                ("execution", execution),
+                ("croypto", croypto),
+            ]
             if captcha_code:
-                form["captcha_code"] = captcha_code
-                form["captcha_payload"] = captcha_payload
+                form.append(("captcha_code", captcha_code))
+                form.append(("captcha_code", captcha_code))  # 服务端可能需要重复字段
+                form.append(("captcha_payload", captcha_payload))
+
 
             resp = session.post(
                 self.LOGIN_URL,
                 data=form,
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "Csrf-Key": self.CSRF_KEY,
-                    "Csrf-Value": self.CSRF_VALUE,
                 },
                 timeout=15,
                 allow_redirects=True,
@@ -366,7 +419,30 @@ class SSO:
                 print(f"  ✗ 登录失败，URL: {final_url}")
 
             # 解析错误
-            soup = BeautifulSoup(resp.text, "html.parser")
+            resp_text = resp.text
+
+            # 检查响应是否是 JSON（某些 SSO 登录失败会返回 JSON）
+            import json as _json
+            try:
+                resp_json = resp.json()
+                # 尝试从 JSON 提取错误
+                error_msg = resp_json.get("message") or resp_json.get("msg") or resp_json.get("error", "")
+                error_code = str(resp_json.get("code", ""))
+                if error_msg:
+                    print(f"  ✗ 登录失败: [{error_code}] {error_msg}")
+                    if "验证码" in str(error_msg) and attempt < max_retries:
+                        continue
+                    return {
+                        "success": False,
+                        "cookies": cookies,
+                        "message": str(error_msg),
+                        "error_code": error_code,
+                    }
+            except Exception:
+                pass
+
+            # HTML 解析错误（SPA 页面可能无法提取，但还是尝试）
+            soup = BeautifulSoup(resp_text, "html.parser")
             error_el = soup.find("p", id="login-error-code")
             error_code = error_el.get_text(strip=True) if error_el else ""
 
