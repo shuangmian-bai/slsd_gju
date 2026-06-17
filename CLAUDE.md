@@ -27,19 +27,36 @@ python3 pingjiao_demo.py
 ## 模块架构
 
 **sso/** — SSO 登录模块包（`sso.SSO` 类）。
+
+```
+sso/
+├── __init__.py   # SSO 主类（登录、get_cookie 调度）
+├── crypto.py     # AES-128-ECB 加密
+├── captcha.py    # 验证码获取 + OCR 识别
+└── browser.py    # 无头浏览器 CAS 跳转（按域名分发）
+```
+
 ```python
 from sso import SSO
 sso = SSO(proxy="http://127.0.0.1:7890")  # proxy 可选
 sso.set_account("学号", "密码")
 
-# 获取 SSO Cookie
+# 获取 SSO Cookie（统一门户）
 result = sso.get_cookie()  # {"success", "cookies", "message"}
+# cookies: SESSION, SOURCEID_TGC, __jsluid_s, rg_objectid
 
-# 获取指定域名的 Cookie（通过无头浏览器自动完成 CAS 跳转）
-result = sso.get_cookie(domain="assess.hnslsdxy.com")  # 评教系统
+# 获取教务系统 Cookie（完整认证链：CAS → ticketlogin → JSESSIONID）
+result = sso.get_cookie(domain="zfjw.hnslsdxy.com")
+# cookies: JSESSIONID, insert_cookie, __jsluid_h
+
+# 获取评教系统 Cookie（CAS 跳转）
+result = sso.get_cookie(domain="assess.hnslsdxy.com")
+# cookies: sessionid, csrftoken, __jsluid_h, messages
 ```
-- `cookies` 包含：`SESSION`、`SOURCEID_TGC`、`__jsluid_s`、`rg_objectid`
-- `get_cookie(domain=...)` 通过无头浏览器访问门户 → 点击子系统入口 → 自动完成 CAS 跳转
+
+- `get_cookie(domain=None)` — 返回 SSO 原始 cookies
+- `get_cookie(domain=...)` — 通过无头浏览器完成该域名的认证链，返回域名专属 cookies
+- 不同域名有不同的认证链路，由 `browser.py` 中的 handler 分发
 
 **pingjiao/** — 评教模块包（`pingjiao.PingJiao` 类）。
 ```python
@@ -75,17 +92,28 @@ pj.score("课程名称", "老师姓名")  # 给某个老师评教（模糊匹配
 - 评教服务需要 CAS ticket 验证 — 仅 SSO cookies 不够，必须通过 `set_sso_cookie()` 完成跳转
 - 评教 API 需要 `csrftoken` cookie 的 `X-CSRFToken` 头
 
-### CAS 跳转流程（评教系统）
+### 子域名认证链路
 
+**教务系统 (zfjw.hnslsdxy.com)**：
 ```
-1. 访问门户首页，点击评教系统入口
-2. 自动完成 CAS 跳转，获取评教域名的 cookies
+1. 访问 CAS 入口 /sso/jasiglogin?ticket=...
+2. 302 → HTTPS，服务端设置 JSESSIONID
+3. 内部跳转 /jwglxt/ticketlogin?uid=...&timestamp=...&verify=...
+4. 最终到达 /jwglxt/xtgl/index_initMenu.html
+5. cookies: JSESSIONID + insert_cookie + __jsluid_h
+```
+
+**评教系统 (assess.hnslsdxy.com)**：
+```
+1. 访问 CAS 入口 /auth/login/
+2. 自动完成 CAS 跳转
+3. cookies: sessionid + csrftoken + __jsluid_h + messages
 ```
 
 ### 门户入口
 
-从门户 API `/api/services/card` 获取子系统入口：
 - 评教系统：`https://assess.hnslsdxy.com/auth/login/`
+- 教务系统：`https://zfjw.hnslsdxy.com/sso/jasiglogin`
 
 ## 编码约定
 
@@ -93,6 +121,7 @@ pj.score("课程名称", "老师姓名")  # 给某个老师评教（模糊匹配
 - Cookie 设置方式：`set_cookie(字符串)` / `set_cookies(字典)` / `set_sso_cookie(SSO cookies 字典)`
 - 课程匹配使用子字符串包含（`name in kcmc`），支持模糊匹配
 - 中文对齐使用 `cn_ljust()` 辅助函数（中文字符占 2 个宽度）
+- `browser.py` 中按域名分发 handler，新增域名只需添加对应的 `_get_xxx_cookie` 函数
 
 ## 外部服务
 
@@ -100,4 +129,5 @@ pj.score("课程名称", "老师姓名")  # 给某个老师评教（模糊匹配
 |------|------|
 | `sso.hnslsdxy.com` | SSO 认证（CAS 服务器） |
 | `portal.hnslsdxy.com` | 门户（ticket 验证重定向） |
-| `assess.hnslsdxy.com` | 评教 API |
+| `assess.hnslsdxy.com` | 评教系统 |
+| `zfjw.hnslsdxy.com` | 正方教务系统 |
