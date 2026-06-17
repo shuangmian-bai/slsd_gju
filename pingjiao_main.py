@@ -12,7 +12,7 @@ from pingjiao import PingJiao
 
 # 方式2: 通过 SSO 登录获取 Cookie
 sso = SSO()
-sso.set_account("202450350051", "yuangejiayou123@H")
+sso.set_account("your_user", "your_password")
 result = sso.get_cookie()
 
 if not result["success"]:
@@ -29,8 +29,8 @@ pj.set_sso_cookie(result["cookies"])
 pj.show_assessments()
 
 # 给所有课程满分评教
-# result = pj.score_all()
-# print(result)
+result = pj.score_all()
+print(result)
 
 # 给某个老师满分评教
 # result = pj.score("课程名称", "老师姓名")

@@ -17,13 +17,13 @@
 pip install requests beautifulsoup4 pycryptodome ddddocr
 
 # SSO 登录示例
-python3 sso_demo.py
+python3 sso_login_demo.py
 
 # 评教示例
-python3 pingjiao_demo.py
+python3 pingjiao_main.py
 
 # 交互式选课
-python3 xuanke_demo.py
+python3 xuanke_main.py
 ```
 
 ## 模块架构

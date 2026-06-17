@@ -10,7 +10,7 @@ sso = SSO()
 # sso = SSO(proxy="http://127.0.0.1:7890")  # 使用代理
 
 # 设置账号密码
-sso.set_account("202450350051", "yuangejiayou123@H")
+sso.set_account("your_user", "your_password")
 
 # 获取 Cookie
 result = sso.get_cookie()
