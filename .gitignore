@@ -4,3 +4,4 @@ __pycache__/
 .cookies/
 captcha/
 .venv/
+/.playwright-mcp/
