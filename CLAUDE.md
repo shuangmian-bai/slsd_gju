@@ -14,14 +14,16 @@
 
 ```bash
 # 安装依赖
-pip install requests beautifulsoup4 pycryptodome ddddocr playwright
-playwright install chromium
+pip install requests beautifulsoup4 pycryptodome ddddocr
 
 # SSO 登录示例
 python3 sso_demo.py
 
 # 评教示例
 python3 pingjiao_demo.py
+
+# 交互式选课
+python3 xuanke_demo.py
 ```
 
 ## 模块架构
@@ -33,7 +35,7 @@ sso/
 ├── __init__.py   # SSO 主类（登录、get_cookie 调度）
 ├── crypto.py     # AES-128-ECB 加密
 ├── captcha.py    # 验证码获取 + OCR 识别
-└── browser.py    # 无头浏览器 CAS 跳转（按域名分发）
+└── browser.py    # CAS 重定向链跟踪（requests 协议，按域名分发）
 ```
 
 ```python
@@ -55,7 +57,7 @@ result = sso.get_cookie(domain="assess.hnslsdxy.com")
 ```
 
 - `get_cookie(domain=None)` — 返回 SSO 原始 cookies
-- `get_cookie(domain=...)` — 通过无头浏览器完成该域名的认证链，返回域名专属 cookies
+- `get_cookie(domain=...)` — 通过 requests 跟踪 CAS 重定向链，返回域名专属 cookies
 - 不同域名有不同的认证链路，由 `browser.py` 中的 handler 分发
 
 **pingjiao/** — 评教模块包（`pingjiao.PingJiao` 类）。

@@ -2,7 +2,7 @@
 """
 SSO 登录模块 — 湖南水利水电职业技术学院
 
-功能：SSO 登录获取 Cookie，支持获取各子站点的 Cookie
+功能：SSO 登录获取 Cookie，通过 requests 跟踪 CAS 重定向链获取各子站点 Cookie
 
 Usage:
     from sso import SSO
@@ -13,8 +13,9 @@ Usage:
     # 获取 SSO Cookie
     result = sso.get_cookie()
 
-    # 获取指定域名的 Cookie（自动完成 CAS 跳转）
-    result = sso.get_cookie(domain="assess.hnslsdxy.com")
+    # 获取指定域名的 Cookie（自动跟踪 CAS 重定向链）
+    result = sso.get_cookie(domain="zfjw.hnslsdxy.com")   # 教务系统
+    result = sso.get_cookie(domain="assess.hnslsdxy.com")  # 评教系统
 """
 
 import re

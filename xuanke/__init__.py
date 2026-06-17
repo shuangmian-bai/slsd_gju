@@ -96,7 +96,26 @@ class XuanKe:
         Args:
             cookie_dict: {"JSESSIONID": "xxx", "__jsluid_s": "xxx", ...}
         """
-        self._session.cookies.update(cookie_dict)
+        for name, value in cookie_dict.items():
+            self._session.cookies.set(
+                name, value,
+                domain="zfjw.hnslsdxy.com",
+                path="/",
+            )
+
+    def set_cookie_jar(self, cookies: list):
+        """
+        通过 cookie 对象列表设置 Cookie（保留 domain 和 path）
+
+        Args:
+            cookies: http.cookiejar.Cookie 对象列表，来自 sso.get_cookie() 的 cookie_jar 字段
+        """
+        for c in cookies:
+            self._session.cookies.set(
+                c.name, c.value,
+                domain=c.domain,
+                path=c.path,
+            )
 
     # 默认选课课程 ID（从 curl 提取）
     DEFAULT_XKKZ_ID = "540755BBD0F5022FE065000000000001"
