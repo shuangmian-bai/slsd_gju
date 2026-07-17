@@ -19,6 +19,7 @@ Usage:
     # 获取指定域名的 Cookie（自动跟踪 CAS 重定向链）
     result = sso.get_cookie(domain="zfjw.hnslsdxy.com")   # 教务系统
     result = sso.get_cookie(domain="assess.hnslsdxy.com")  # 评教系统
+    result = sso.get_cookie(domain="study.hnslsdxy.com")   # 学习通（通过门户 SSO 桥接）
 """
 
 import re
@@ -30,6 +31,7 @@ from bs4 import BeautifulSoup
 from .crypto import aes_encrypt
 from .captcha import check_captcha, fetch_captcha, ocr_captcha
 from .browser import get_domain_cookie
+from .portal import get_study_cookie
 
 
 class SSO:
@@ -43,6 +45,7 @@ class SSO:
         "portal.hnslsdxy.com": "https://portal.hnslsdxy.com/home",
         "assess.hnslsdxy.com": "https://assess.hnslsdxy.com/auth/login/",
         "zfjw.hnslsdxy.com": "https://zfjw.hnslsdxy.com/jwglxt/xtgl/index_initMenu.html?jsdm=xs",
+        "study.hnslsdxy.com": "https://fysso.chaoxing.com/sso/hnslsdxy",
     }
 
     def __init__(self, proxy: str = None):
@@ -78,6 +81,10 @@ class SSO:
 
         if domain is None:
             return {"success": True, "cookies": self._cookies, "message": "OK"}
+
+        # 学习通通过超星 SSO 桥接获取（需要 SSO cookies 进行 CAS 认证）
+        if domain == "study.hnslsdxy.com":
+            return get_study_cookie(self._cookies, self._proxy)
 
         return get_domain_cookie(domain, self._cookies, self._proxy)
 
@@ -309,3 +316,47 @@ class SSO:
                     return match.group(1)
 
         return ""
+
+
+if __name__ == "__main__":
+    import json
+    import getpass
+
+    print("=" * 50)
+    print("  SSO 登录模块测试")
+    print("=" * 50)
+
+    # 输入账号
+    username = input("\n学号: ").strip()
+    password = getpass.getpass("密码: ")
+
+    sso = SSO()
+    sso.set_account(username, password)
+
+    # 测试1: 获取 SSO Cookie
+    print("\n--- 测试1: 获取 SSO Cookie ---")
+    result = sso.get_cookie()
+    print(f"结果: {result['success']}")
+    print(f"消息: {result['message']}")
+    if result['success']:
+        print(f"Cookie keys: {list(result['cookies'].keys())}")
+
+    # 测试2: 获取教务系统 Cookie
+    print("\n--- 测试2: 获取教务系统 Cookie ---")
+    result = sso.get_cookie(domain="zfjw.hnslsdxy.com")
+    print(f"结果: {result['success']}")
+    print(f"消息: {result['message']}")
+
+    # 测试3: 获取评教系统 Cookie
+    print("\n--- 测试3: 获取评教系统 Cookie ---")
+    result = sso.get_cookie(domain="assess.hnslsdxy.com")
+    print(f"结果: {result['success']}")
+    print(f"消息: {result['message']}")
+
+    # 测试4: 获取学习通 Cookie
+    print("\n--- 测试4: 获取学习通 Cookie ---")
+    result = sso.get_cookie(domain="study.hnslsdxy.com")
+    print(f"结果: {result['success']}")
+    print(f"消息: {result['message']}")
+    if result['success']:
+        print(f"Cookie 数量: {len(result['cookies'])}")

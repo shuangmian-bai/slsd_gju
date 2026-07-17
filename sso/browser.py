@@ -3,6 +3,7 @@
 不同子域名的认证链路不同：
 - 教务系统 (zfjw.hnslsdxy.com): CAS → /sso/jasiglogin → /jwglxt/ticketlogin
 - 评教系统 (assess.hnslsdxy.com): CAS → /auth/login/
+- 学习通 (study.hnslsdxy.com): 走 portal.py 超星 SSO 桥接，不经过此模块
 - 通用: CAS 入口 → 重定向
 """
 
@@ -41,6 +42,7 @@ def get_domain_cookie(domain: str, cookies: dict, proxy: str = None) -> dict:
     cas_urls = {
         "zfjw.hnslsdxy.com": "https://zfjw.hnslsdxy.com/sso/jasiglogin",
         "assess.hnslsdxy.com": "https://assess.hnslsdxy.com/auth/login/",
+        "portal.hnslsdxy.com": "https://portal.hnslsdxy.com/cas/validate",
     }
     cas_url = cas_urls.get(domain, f"https://{domain}/sso/jasiglogin")
 

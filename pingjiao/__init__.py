@@ -321,3 +321,46 @@ class PingJiao:
             print(f"  {i}. {course} - {teacher}")
         print("-" * 60)
         print(f"满分数组: {self.get_full_score()}")
+
+
+if __name__ == "__main__":
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    from sso import SSO
+
+    print("=" * 50)
+    print("  评教模块测试")
+    print("=" * 50)
+
+    # SSO 登录
+    username = input("\n学号: ").strip()
+    password = input("密码: ").strip()
+
+    sso = SSO()
+    sso.set_account(username, password)
+    result = sso.get_cookie()
+
+    if not result["success"]:
+        print(f"登录失败: {result['message']}")
+        sys.exit(1)
+
+    print("✓ 登录成功")
+
+    # 创建评教实例
+    pj = PingJiao()
+    pj.set_sso_cookie(result["cookies"])
+
+    # 测试1: 查询待评教课程
+    print("\n--- 测试1: 查询待评教课程 ---")
+    pj.show_assessments()
+
+    # 测试2: 评教（默认满分）
+    print("\n--- 测试2: 所有课程满分评教 ---")
+    confirm = input("确认评教？(y/N): ").strip().lower()
+    if confirm == "y":
+        result = pj.score_all()
+        print(f"结果: {result}")
+    else:
+        print("已跳过")

@@ -569,3 +569,59 @@ class XuanKe:
                 return {"success": False, "message": f"退课失败: 未知响应格式"}
         except Exception as e:
             return {"success": False, "message": f"退课异常: {str(e)}"}
+
+
+if __name__ == "__main__":
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    from sso import SSO
+
+    print("=" * 50)
+    print("  选课模块测试")
+    print("=" * 50)
+
+    # SSO 登录
+    username = input("\n学号: ").strip()
+    password = input("密码: ").strip()
+
+    sso = SSO()
+    sso.set_account(username, password)
+    sso_result = sso.get_cookie()
+
+    if not sso_result["success"]:
+        print(f"登录失败: {sso_result['message']}")
+        sys.exit(1)
+
+    print("✓ SSO 登录成功")
+
+    # 获取教务系统 Cookie
+    print("\n获取教务系统 Cookie...")
+    jw_result = sso.get_cookie(domain="zfjw.hnslsdxy.com")
+    if not jw_result["success"]:
+        print(f"获取教务 Cookie 失败: {jw_result['message']}")
+        sys.exit(1)
+
+    print("✓ 教务 Cookie 获取成功")
+
+    # 创建选课实例
+    xk = XuanKe()
+    if "cookie_jar" in jw_result:
+        xk.set_cookie_jar(jw_result["cookie_jar"])
+    else:
+        xk.set_cookies(jw_result["cookies"])
+
+    # 测试1: 查询课程
+    print("\n--- 测试1: 查询可选课程 ---")
+    xk.show_courses()
+
+    # 测试2: 查询已选课程
+    print("\n--- 测试2: 查询已选课程 ---")
+    selected = xk.get_selected_courses()
+    if selected:
+        print(f"已选 {len(selected)} 门课程:")
+        for c in selected:
+            print(f"  - {c.get('kcmc', '')} ({c.get('kch', '')})")
+    else:
+        print("暂无已选课程")
